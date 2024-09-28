@@ -27,9 +27,7 @@ Ou use a paleta de comandos para executar a conversão.
 
 # Problemas Conhecidos
 
-Nenhum problema conhecido até o momento. Se você encontrar algum problema ou bug, sinta-se à vontade para relatar [abrindo uma issue](https://github.com/SEU_USUARIO/sql-visualizer/issues) no repositório do GitHub.
-
-Contribuições também são bem-vindas! Confira o código no [GitHub](https://github.com/SEU_USUARIO/sql-visualizer) para mais informações sobre como contribuir com melhorias.
+Nenhum problema conhecido até o momento. Se você encontrar algum problema ou bug, sinta-se à vontade para relatar [abrindo uma issue](https://github.com/RiuriII/sql-diagram-visualizer/issues) no repositório do GitHub.
 
 
 # Notas de Lançamento
