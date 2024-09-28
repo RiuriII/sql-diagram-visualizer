@@ -35,6 +35,8 @@
       ]
     }
   },
+  "publisher": "Riuri Dev",
+  "license": "MIT",
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
