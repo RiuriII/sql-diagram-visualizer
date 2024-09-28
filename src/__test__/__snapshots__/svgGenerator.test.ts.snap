@@ -1,0 +1,26 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`svgGenerator should generate svg 1`] = `
+"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3000 1000" preserveAspectRatio="xMinYMin meet">
+  <g id="table-0" transform="translate(100, 100)">
+  
+    <rect x="0" y="0" width="242" height="205" fill="#FFFFFF" stroke="black" filter="url(#shadow)"/>
+    <rect x="0" y="0" width="242" height="50" fill="#8B29A6" />
+    <text x="121" y="30" font-family="Arial, sans-serif" font-size="20" font-variant="small-caps" text-anchor="middle" font-weight="bold" fill="#ffffff">table1</text>
+      <rect x="0" fill="#ffffff" y="50" width="241" height="40" />
+      <text x="20" y="50" dy="25" font-family="Arial, sans-serif" font-size="16" fill="black" font-weight="bold">column1     <tspan dx="30" font-weight="normal">INT</tspan></text>
+      <rect x="0" fill="#f5f5f5" y="90" width="241" height="40" />
+      <text x="20" y="90" dy="25" font-family="Arial, sans-serif" font-size="16" fill="black" font-weight="bold">column2     <tspan dx="30" font-weight="normal">VARCHAR(255)</tspan></text>
+      <rect x="0" fill="#ffffff" y="130" width="241" height="40" />
+      <text x="20" y="130" dy="25" font-family="Arial, sans-serif" font-size="16" fill="black" font-weight="bold">column3     <tspan dx="30" font-weight="normal">DATE</tspan></text>
+    <defs>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+    <feDropShadow dx="3" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.2" />
+  </filter>
+</defs>
+
+  </g>
+</svg>
+"
+`;

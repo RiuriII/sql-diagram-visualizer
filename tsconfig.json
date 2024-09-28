@@ -1,0 +1,29 @@
+{
+	"compilerOptions": {
+		"module": "CommonJS",
+		"target": "es6",
+		"outDir": "out",
+		"lib": [
+			"es6"
+		],
+		"sourceMap": true,
+		"rootDir": "src",
+		"strict": true,
+		"noImplicitAny": true,
+		"types": [
+			"jest",
+			"node",
+			"vscode"
+		],
+		"esModuleInterop": true,
+		"moduleResolution": "node",
+		// "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
+		// "noUnusedParameters": true,  /* Report errors on unused parameters. */
+	},
+	"exclude": [
+		"node_modules",
+		".vscode-test",
+		"src/__mocks__",
+		"src/__test__"
+	]
+}
