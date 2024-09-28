@@ -19,7 +19,10 @@ Insira um nome para o arquivo de saída ou deixe em branco para usar o nome padr
 O arquivo SVG gerado será salvo no diretório de trabalho.
 Ou use a paleta de comandos para executar a conversão.
 
-[Veja a demonstração](./sql_visualizer.mp4)
+## Demonstração
+
+[![Como usar SQL Visualizer](https://img.youtube.com/vi/zOQM5RPOCFQ/0.jpg)](https://youtu.be/zOQM5RPOCFQ)
+
 
 
 # Problemas Conhecidos
