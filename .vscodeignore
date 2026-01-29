@@ -1,11 +1,26 @@
+# Dev / Editor
 .vscode/**
 .vscode-test/**
+**/.vscode/**
+
+# Source & tests
 src/**
+**/__test__/**
+**/*.test.*
+
+# Config & meta
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
+jest.config.js
+
+# Build artifacts (não usados em runtime)
 **/*.map
-**/*.ts
-**/.vscode-test.*
+
+# Env / secrets
+.env
+
+# Node
+node_modules/**
