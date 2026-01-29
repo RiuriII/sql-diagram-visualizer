@@ -1,9 +1,10 @@
-# Change Log
+## [1.0.4] - 2026-01-29
 
-All notable changes to the "sql-visualizer" extension will be documented in this file.
+### Changed
+- Improved SQL parser logic and error handling
+- Refactored internal structure with shared interfaces
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
 
-- Initial release
+### Notes
+- Currently supports MySQL syntax only
