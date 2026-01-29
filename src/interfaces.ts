@@ -32,3 +32,8 @@ export interface Connection {
     targetPosY: number;
     color: string;
 }
+
+export interface SqlBlock {
+  header: string;  
+  body: string[];   
+}
