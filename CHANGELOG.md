@@ -1,10 +1,7 @@
-## [1.0.4] - 2026-01-29
+## [1.0.5] - 2026-01-29
 
-### Changed
-- Improved SQL parser logic and error handling
-- Refactored internal structure with shared interfaces
-
-
+### Fixed
+- Cleanup of extension bundle artifacts
 
 ### Notes
 - Currently supports MySQL syntax only
