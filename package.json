@@ -3,7 +3,7 @@
   "displayName": "SQL Visualizer",
   "description": "Convert SQL files into SVG diagrams.",
   "icon": "assets/icon.png",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "engines": {
     "vscode": "^1.93.0"
   },
