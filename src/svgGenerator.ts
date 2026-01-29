@@ -1,7 +1,15 @@
 import * as Handlebars from "handlebars";
 import { Column, Connection, SvgTable, Table } from "./interfaces";
 
-// SVG template  
+/**
+ * Main SVG template that contains the overall diagram structure.
+ * Uses Handlebars for dynamic rendering of tables and connections.
+ * 
+ * - viewBox: Defines the visible area of the SVG (3000x1000)
+ * - preserveAspectRatio: Maintains aspect ratio when resizing
+ * - connections: Lines that represent foreign keys between tables
+ * - tables: SVG groups with visual representations of tables
+ **/
 const svgTemplate = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3000 1000" preserveAspectRatio="xMinYMin meet">
 {{#each connections}}
@@ -15,7 +23,15 @@ const svgTemplate = `
 </svg>
 `;
 
-// Table template
+/**
+ * Template for individual rendering of each database table.
+ *
+ * Visual structure:
+ * - White outer rectangle with black border and shadow
+ * - Purple header (#8B29A6) with table name in white
+ * - Alternating lines (zebra striping) for better readability
+ * - Each column shows: name (bold) and type (normal)
+ */
 const tableTemplate = `
     <rect x="0" y="0" width="{{tableWidth}}" height="{{tableHeight}}" fill="#FFFFFF" stroke="black" filter="url(#shadow)"/>
     <rect x="0" y="0" width="{{tableWidth}}" height="50" fill="#8B29A6" />
@@ -32,11 +48,13 @@ const tableTemplate = `
 `;
 
 // Helper to calculate the center of the table
+// Used to position the table name in the header
 Handlebars.registerHelper('centerX', function (tableWidth: any) {
     return tableWidth.data.root.tableWidth / 2;
 });
 
 // Helper to reduce the line width
+// Used to draw the background rectangles for each column
 Handlebars.registerHelper('reduceLine', function (tableWidth: number) {
     return tableWidth - 1;
 });
@@ -51,10 +69,33 @@ Handlebars.registerHelper('isOdd', function (index: number) {
     return index % 2 === 1;
 });
 
-// Estimates that each character occupies about 0.6 * fontSize pixels in width
+/**
+ * Estimates the width in pixels that a text will occupy when rendered.
+ * Uses a heuristic of 0.6 * fontSize pixels per character.
+ *
+ * @param text - Text to be measured
+ * @param fontSize - Font size in pixels
+ * @returns Estimated width of the text in pixels
+ *
+ * @example
+ * estimateTextWidth("user_id", 16)     // ~57.6 pixels
+ * estimateTextWidth("VARCHAR(255)", 16) // ~105.6 pixels
+ */
 const estimateTextWidth = (text: string, fontSize: number) => text.length * fontSize * 0.6;
 
-// Calculates the width of the table based on the column names and types
+/**
+ * Calculates the width of the table based on the column names and types.
+ * @param columns - Array of column objects
+ * @param fontSize - Font size in pixels
+ * @returns Estimated width of the table in pixels
+ *
+ * @example
+ * const columns = [
+ *   { name: "id", type: "INT" },
+ *   { name: "email", type: "VARCHAR(255)" }
+ * ];
+ * calculateTableWidth(columns, 16); // ~145 pixels
+ */
 const calculateTableWidth = (columns: Column[], fontSize: number) => {
     let maxWidth = 0;
     const paddingWidth = 40;
@@ -68,7 +109,20 @@ const calculateTableWidth = (columns: Column[], fontSize: number) => {
     return Math.ceil(maxWidth + paddingWidth); // Add padding to the width
 };
 
-// Generates connections between tables based on foreign keys
+/**
+ * Generates visual connections (lines) between tables based on foreign keys.
+ * Each line connects the table that has the foreign key to the referenced table.
+ *
+ * @param data - Array of database tables (with foreign keys)
+ * @param tables - Array of SVG tables (with calculated positions)
+ * @returns Array of connections with coordinates and colors
+ *
+ * @example
+ * // If 'orders' has a FK to 'users':
+ * // Creates a line from the right edge of 'orders' to the left edge of 'users'
+ * const connections = connectionsGenerator(dbTables, svgTables);
+ * // [{ sourcePosX: 500, sourcePosY: 200, targetPosX: 100, targetPosY: 150, color: '#8B29A6' }]
+ */
 const connectionsGenerator = (data: Table[], tables: SvgTable[]): Connection[] => {
     const connections: Connection[] = [];
 
@@ -102,7 +156,18 @@ const connectionsGenerator = (data: Table[], tables: SvgTable[]): Connection[] =
     return connections;
 };
 
-// Calculates the positions of tables based on padding and window width
+
+/**
+ * Calculates the positions of tables based on padding and window width.
+ *
+ * @param {Object} padding - The padding between tables
+ * @param {number} tableWidth - The width of the current table
+ * @param {number} tableHeight - The height of the current table
+ * @param {number} previousTableWidth - The width of the previous table
+ * @param {number} windowWidth - The total width of the SVG window
+ * @param {Object} currentPosition - The current position of the table
+ * @returns {Object} - The updated position of the table
+ */
 const calculateTablePositions = (padding: {x: number, y: number}, tableWidth: number, tableHeight: number, previousTableWidth: number, windowWidth: number, currentPosition: { x: number, y: number }) => {
 
     // If `currentPosition` exceeds the allowed total width, move to the next "row" (Y axis)
@@ -116,6 +181,21 @@ const calculateTablePositions = (padding: {x: number, y: number}, tableWidth: nu
     return currentPosition;
 };
 
+/**
+ * Generates SVG representations of all database tables.
+ * Calculates dimensions, positions and renders each table using Handlebars.
+ * 
+ * @param tables - Array of database tables
+ * @returns Array of SvgTable objects with rendered markup and position metadata
+ * 
+ * @example
+ * const dbTables = [
+ *   { tableName: "users", column: [...], foreignKey: [...] },
+ *   { tableName: "orders", column: [...], foreignKey: [...] }
+ * ];
+ * const svgTables = tablesGenerator(dbTables);
+ * // Returns array with tableMarkup, posX, posY, etc. for each table
+ */
 const tablesGenerator = (tables: Table[]) => {
     const windowWidth = 2500; // Total width of the SVG
     const tableTemplateCompiled = Handlebars.compile(tableTemplate);
@@ -151,6 +231,22 @@ const tablesGenerator = (tables: Table[]) => {
     });
 };
 
+/**
+ * Main function that generates the complete SVG diagram of the database.
+ * Orchestrates the creation of tables, position calculation and connection generation.
+ * 
+ * @param databaseTables - Array of tables extracted from SQL
+ * @returns String containing the complete ER diagram SVG
+ * @throws {Error} If no tables are provided
+ * 
+ * @example
+ * const tables = parseSql(sqlContent);
+ * const svgDiagram = svgGenerator(tables);
+ * await writeSvgFile('database-diagram.svg', svgDiagram);
+ * 
+ * // The generated SVG can be viewed in browsers or SVG editors
+ * // Shows all tables with their columns and lines connecting foreign keys
+ */
 export const svgGenerator = (databaseTables: Table[]) => {
 
     if (databaseTables.length === 0) {
