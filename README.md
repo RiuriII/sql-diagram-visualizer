@@ -1,37 +1,39 @@
 # SQL Visualizer
 
-SQL Visualizer é uma extensão para o Visual Studio Code que permite converter arquivos SQL em diagramas SVG, facilitando a visualização da estrutura de bancos de dados diretamente no editor.
+SQL Visualizer is a Visual Studio Code extension that allows you to convert SQL files into SVG diagrams, making it easy to visualize database structures directly in the editor.
 
 ## Features
 
 
-- Conversão de SQL para SVG: Transforme arquivos SQL em diagramas SVG para visualizar tabelas e suas relações.
+- SQL to SVG Conversion: Transform SQL files into SVG diagrams to visualize tables and their relationships.
 
-- Acesso rápido pelo explorador: Clique com o botão direito em um arquivo .sql no explorador de arquivos para convertê-lo.
+- Quick access via Explorer: Right-click on a .sql file in the file explorer to convert it.
 
-- Nome personalizável: Escolha o nome do arquivo de saída ou use um nome padrão gerado automaticamente.
+- Customizable Name: Choose the output file name or use an auto-generated default name.
 
-# Como Usar
+# How to Use
 
-Abra um arquivo .sql no Visual Studio Code.
-Clique com o botão direito no arquivo e selecione a opção Convert SQL to Diagram.
-Insira um nome para o arquivo de saída ou deixe em branco para usar o nome padrão.
-O arquivo SVG gerado será salvo no diretório de trabalho.
-Ou use a paleta de comandos para executar a conversão.
+Open a .sql file in Visual Studio Code.
+Right-click on the file and select the **Convert SQL to Diagram** option.
+Enter a name for the output file or leave it blank to use the default name.
+The generated SVG file will be saved in the working directory.
+Or use the command palette to execute the conversion.
 
-## Demonstração
+## Demo
 
-[![Como usar SQL Visualizer](https://img.youtube.com/vi/zOQM5RPOCFQ/0.jpg)](https://youtu.be/zOQM5RPOCFQ)
-
-
-
-# Problemas Conhecidos
-
-Nenhum problema conhecido até o momento. Se você encontrar algum problema ou bug, sinta-se à vontade para relatar [abrindo uma issue](https://github.com/RiuriII/sql-diagram-visualizer/issues) no repositório do GitHub.
+[![How to use SQL Visualizer](https://img.youtube.com/vi/zOQM5RPOCFQ/0.jpg)](https://youtu.be/zOQM5RPOCFQ)
 
 
-# Notas de Lançamento
 
-## 1.0.0
+# Known Issues
 
-Lançamento inicial com suporte à conversão de SQL para SVG.
+No known issues at this time. If you encounter any issues or bugs, feel free to report them by [opening an issue](https://github.com/RiuriII/sql-diagram-visualizer/issues) in the GitHub repository.
+
+
+# Release Notes
+
+## 1.0.4
+
+- Internal code refactoring for better organization and maintenance.
+- Improved SQL parsing logic, making the process more consistent.
+- Foundation prepared for future parser extensions, such as support for syntax variations and other SQL dialects (e.g., PostgreSQL).
