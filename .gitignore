@@ -3,3 +3,6 @@ node_modules
 /.vscode-test.mjs
 out
 .env
+.vscode-test/
+*.vsix
+.eslintcache
