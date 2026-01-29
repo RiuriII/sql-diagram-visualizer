@@ -1,8 +1,14 @@
 import * as vscode from 'vscode';
 import { readSqlFile, writeSvgFile } from './utils/fileUtils';
 import { svgGenerator } from './svgGenerator';
-import { parseSql } from './sqlParse';
+import { parseSql } from './parseSql';
 
+/**
+ * VS Code extension activation function
+ * Registers the 'extension.convertToDiagram' command that allows converting SQL files into SVG diagrams
+ * The command can be triggered from the context menu or via the command palette
+ * @param {vscode.ExtensionContext} context - Extension context provided by VS Code
+ */
 export function activate(context: vscode.ExtensionContext) {
   let disposable = vscode.commands.registerCommand('extension.convertToDiagram', async (uri: vscode.Uri) => {
 
@@ -40,8 +46,8 @@ export function activate(context: vscode.ExtensionContext) {
       
       const sqlContent = readSqlFile(filePath);
       const databaseSchema = parseSql(sqlContent);
-
       const svg = svgGenerator(databaseSchema);
+
       await writeSvgFile(fileName, svg);
       
       vscode.window.showInformationMessage(`Diagram generated successfully! File saved: ${fileName}`);
@@ -55,4 +61,8 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(disposable);
 }
 
+/**
+ * VS Code extension deactivation function
+ * Called when the extension is deactivated or uninstalled
+ */
 export function deactivate() { }
