@@ -3,7 +3,7 @@
   "displayName": "SQL Visualizer",
   "description": "Convert SQL files into SVG diagrams.",
   "icon": "assets/icon.png",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -17,7 +17,7 @@
     "visualizer",
     "extension"
   ],
-  "activationEvents": [],
+  "activationEvents": ["onCommand:extension.convertToDiagram"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
