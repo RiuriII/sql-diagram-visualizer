@@ -1,6 +1,9 @@
 export interface Column {
     name: string;
     type: string;
+    isPK?: boolean;
+    isFK?: boolean;
+    fkReference?: string;   // \"targetTable.column\" - only if isFK
 }
 
 export interface ForeignKey {
@@ -12,6 +15,8 @@ export interface Table {
     tableName: string;
     column: Column[];
     foreignKey: ForeignKey[];
+    level?: number;          // hierarchy level (0 = root)
+    primaryKeyName?: string; // primary key column name (added by enrichTables)
 }
 
 export interface SvgTable {
@@ -31,6 +36,14 @@ export interface Connection {
     targetPosX: number;
     targetPosY: number;
     color: string;
+    label: string;          // \"orders.user_id → users.id\"
+    sourceColumn: string;
+    targetColumn: string;
+    targetTable: string;
+    sourceTable: string;
+    pathData: string;       // SVG path \"d\" attribute (orthogonal route)
+    labelX: number;
+    labelY: number;
 }
 
 export interface SqlBlock {
