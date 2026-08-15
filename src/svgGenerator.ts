@@ -1,570 +1,581 @@
 import * as Handlebars from "handlebars";
-import { Column, Connection, ForeignKey, SvgTable, Table } from "./interfaces";
-
-/* =============================================================================
- * DESIGN CONSTANTS
- * ========================================================================== */
-
-const PALETTE = ['#8B29A6', '#0D0C0C', '#232dfa', '#BA1511', '#0692E1', '#F58804', '#1A9A5B', '#E0B800', '#a10000', '#3f1054', '#4419d2', '#2b8334'];
-
-const LAYOUT = {
-    padding: { x: 140, y: 90 },
-    origin: { x: 120, y: 180 },   // leaves room for the header
-    headerHeight: 140,
-    footerHeight: 100,
-    legendHeight: 175,
-    rowHeight: 40,
-    headerRowHeight: 50,
-    fontSize: 16,
-    gridSize: 25,
-};
-
-
-
-/* =============================================================================
- * TEMPLATES (Handlebars, standard double-brace syntax)
- * ========================================================================== */
+import {
+    Column,
+    Connection,
+    ForeignKey,
+    SvgTable,
+    Table,
+} from "./interfaces";
+import {
+    assignLevels,
+    calculateTableWidth,
+    minimizeCrossings,
+} from "./sugiyamaLayout";
+import { LAYOUT, svgTemplate, tableTemplate } from "./svgTemplates";
+import { detectHops, ElbowConnection, Hop, renderSegmentWithHops } from "./pathCrossings";
 
 /**
- * Full SVG document template.
- * Includes: gradients, filters, grid, header, tables, connections, legend, footer.
+ * Renders the ER diagram: positions every table on a layered grid
+ * (sugiyama-layout.ts), routes a relationship line between every foreign
+ * key and the table it references, and compiles everything into a single
+ * SVG document (svg-templates.ts).
+ *
+ * Relationship lines carry no on-diagram text label — only the footer
+ * legend (built in `svgGenerator` below) names what each colored line
+ * represents. An earlier version rendered a floating label at each line's
+ * midpoint; it was removed because a label's position depends only on its
+ * own line's geometry, with no awareness of the tables and other lines
+ * sitting on top of or behind it in a busy diagram, so it would routinely
+ * end up unreadable — sitting behind a table or cut across by another
+ * connection.
  */
-const svgTemplate = `
-<svg xmlns=\"http://www.w3.org/2000/svg\"
-     viewBox=\"0 0 {{svgWidth}} {{svgHeight}}\"
-     width=\"{{svgWidth}}\" height=\"{{svgHeight}}\"
-     preserveAspectRatio=\"xMinYMin meet\"
-     font-family=\"Segoe UI, Arial, sans-serif\">
 
-  <defs>
-    <!-- soft drop shadow for tables -->
-    <filter id=\"shadow\" x=\"-10%\" y=\"-10%\" width=\"120%\" height=\"120%\">
-      <feDropShadow dx=\"3\" dy=\"4\" stdDeviation=\"4\" flood-color=\"#000\" flood-opacity=\"0.18\"/>
-    </filter>
 
-    <!-- header gradient -->
-    <linearGradient id=\"headerGradient\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\">
-      <stop offset=\"0%\"  stop-color=\"#4A148C\"/>
-      <stop offset=\"100%\" stop-color=\"#8B29A6\"/>
-    </linearGradient>
+const PALETTE = [
+    "#8B29A6", "#0D0C0C", "#232dfa", "#BA1511",
+    "#0692E1", "#F58804", "#1A9A5B", "#E0B800",
+    "#a10000", "#3f1054", "#4419d2", "#2b8334",
+];
 
-    <!-- table header gradient -->
-    <linearGradient id=\"tableHeaderGradient\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\">
-      <stop offset=\"0%\"  stop-color=\"#A335BF\"/>
-      <stop offset=\"100%\" stop-color=\"#8B29A6\"/>
-    </linearGradient>
 
-    <!-- footer gradient -->
-    <linearGradient id=\"footerGradient\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\">
-      <stop offset=\"0%\"  stop-color=\"#1a1a1a\"/>
-      <stop offset=\"100%\" stop-color=\"#333333\"/>
-    </linearGradient>
+const CORNER_R = 8;
 
-    <!-- background grid pattern -->
-    <pattern id=\"grid\" width=\"{{gridSize}}\" height=\"{{gridSize}}\" patternUnits=\"userSpaceOnUse\">
-      <path d=\"M {{gridSize}} 0 L 0 0 0 {{gridSize}}\" fill=\"none\" stroke=\"#e5e5e5\" stroke-width=\"0.5\"/>
-    </pattern>
-    <pattern id=\"gridMajor\" width=\"{{gridSizeMajor}}\" height=\"{{gridSizeMajor}}\" patternUnits=\"userSpaceOnUse\">
-      <rect width=\"{{gridSizeMajor}}\" height=\"{{gridSizeMajor}}\" fill=\"url(#grid)\"/>
-      <path d=\"M {{gridSizeMajor}} 0 L 0 0 0 {{gridSizeMajor}}\" fill=\"none\" stroke=\"#d0d0d0\" stroke-width=\"1\"/>
-    </pattern>
+/** Radius, in px, of the semicircular "hop" arc drawn where two
+ *  different connections' lines cross. */
+const HOP_RADIUS = 7;
 
-    <!-- arrowhead markers (one per palette color) -->
-    {{#each arrowMarkers}}
-    <marker id=\"arrow-{{index}}\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\"
-            markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\">
-      <path d=\"M 0 0 L 10 5 L 0 10 z\" fill=\"{{color}}\"/>
-    </marker>
-    {{/each}}
-  </defs>
-
-  <!-- background -->
-  <rect width=\"100%\" height=\"100%\" fill=\"#fafafa\"/>
-  <rect x=\"0\" y=\"{{headerHeight}}\" width=\"100%\"
-        height=\"{{gridAreaHeight}}\" fill=\"url(#gridMajor)\"/>
-
-  <!-- ============================ HEADER ============================ -->
-  <g id=\"diagram-header\">
-    <rect x=\"0\" y=\"0\" width=\"{{svgWidth}}\" height=\"{{headerHeight}}\" fill=\"url(#headerGradient)\"/>
-    <text x=\"40\" y=\"55\" font-size=\"30\" font-weight=\"700\" fill=\"#ffffff\">
-      Database ER Diagram
-    </text>
-    <text x=\"40\" y=\"90\" font-size=\"15\" fill=\"#e0d0f0\">
-      SQLVisualizer - Automatically generated from SQL schema
-    </text>
-  </g>
-
-  <!-- ============================ CONNECTIONS ============================ -->
-  <g id=\"connections\">
-    {{#each connections}}
-      <g class=\"connection\">
-        <path d=\"{{pathData}}\"
-              fill=\"none\"
-              stroke=\"{{color}}\"
-              stroke-width=\"2\"
-              stroke-linecap=\"round\"
-              stroke-linejoin=\"round\"
-              marker-end=\"url(#arrow-{{colorIndex}})\"/>
-        <!-- label pill -->
-        <g transform=\"translate({{labelX}}, {{labelY}})\">
-          <rect x=\"{{labelBoxX}}\" y=\"-11\" width=\"{{labelWidth}}\" height=\"22\" rx=\"11\"
-                fill=\"#ffffff\" stroke=\"{{color}}\" stroke-width=\"1.5\" filter=\"url(#shadow)\"/>
-          <text x=\"0\" y=\"4\" font-size=\"11\" font-weight=\"600\" fill=\"{{color}}\" text-anchor=\"middle\">
-            {{label}}
-          </text>
-        </g>
-      </g>
-    {{/each}}
-  </g>
-
-  <!-- ============================ TABLES ============================ -->
-  <g id=\"tables\">
-    {{#each tables}}
-      <g id=\"table-{{tableName}}\" transform=\"translate({{posX}}, {{posY}})\">
-        {{{tableMarkup}}}
-      </g>
-    {{/each}}
-  </g>
-
-  <!-- ============================ LEGEND ============================ -->
-  <g id=\"legend\" transform=\"translate(40, {{legendY}})\">
-    <rect x=\"0\" y=\"0\" width=\"{{legendWidth}}\" height=\"{{legendHeight}}\"
-          rx=\"10\" fill=\"#ffffff\" stroke=\"#e0e0e0\" filter=\"url(#shadow)\"/>
-    <text x=\"20\" y=\"28\" font-size=\"16\" font-weight=\"700\" fill=\"#333333\">Legend</text>
-
-    <!-- PK indicator -->
-    <g transform=\"translate(20, 50)\">
-      <circle cx=\"10\" cy=\"10\" r=\"9\" fill=\"#F58804\"/>
-      <text x=\"10\" y=\"14\" font-size=\"10\" font-weight=\"700\" fill=\"#ffffff\" text-anchor=\"middle\">PK</text>
-      <text x=\"30\" y=\"14\" font-size=\"13\" fill=\"#333333\">Primary Key</text>
-    </g>
-
-    <!-- FK indicator -->
-    <g transform=\"translate(20, 80)\">
-      <circle cx=\"10\" cy=\"10\" r=\"9\" fill=\"#444DF2\"/>
-      <text x=\"10\" y=\"14\" font-size=\"10\" font-weight=\"700\" fill=\"#ffffff\" text-anchor=\"middle\">FK</text>
-      <text x=\"30\" y=\"14\" font-size=\"13\" fill=\"#333333\">Foreign Key</text>
-    </g>
-
-    <!-- Regular column -->
-    <g transform=\"translate(20, 110)\">
-      <circle cx=\"10\" cy=\"10\" r=\"9\" fill=\"#cccccc\"/>
-      <text x=\"30\" y=\"14\" font-size=\"13\" fill=\"#333333\">Regular column</text>
-    </g>
-
-    <!-- Relationship colors -->
-    <text x=\"200\" y=\"45\" font-size=\"14\" font-weight=\"700\" fill=\"#333333\">Relationships</text>
-    {{#each legendRelationships}}
-      <g transform=\"translate(200, {{yPos}})\">
-        <line x1=\"0\" y1=\"10\" x2=\"30\" y2=\"10\" stroke=\"{{color}}\" stroke-width=\"2.5\" stroke-linecap=\"round\"/>
-        <circle cx=\"30\" cy=\"10\" r=\"3\" fill=\"{{color}}\"/>
-        <text x=\"42\" y=\"14\" font-size=\"12\" fill=\"#333333\">{{label}}</text>
-      </g>
-    {{/each}}
-  </g>
-
-  <!-- ============================ FOOTER ============================ -->
-  <g id=\"diagram-footer\" transform=\"translate(0, {{footerY}})\">
-    <rect x=\"0\" y=\"0\" width=\"{{svgWidth}}\" height=\"{{footerHeight}}\" fill=\"url(#footerGradient)\"/>
-    <text x=\"40\" y=\"35\" font-size=\"14\" font-weight=\"700\" fill=\"#ffffff\">SCHEMA STATISTICS</text>
-
-    <g font-size=\"12\" fill=\"#e0e0e0\">
-      <text x=\"40\"  y=\"60\">Total tables: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.tables}}</tspan></text>
-      <text x=\"200\" y=\"60\">Total columns: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.columns}}</tspan></text>
-      <text x=\"380\" y=\"60\">Primary keys: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.primaryKeys}}</tspan></text>
-      <text x=\"540\" y=\"60\">Foreign keys: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.foreignKeys}}</tspan></text>
-      <text x=\"700\" y=\"60\">Avg columns/table: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.avgColumns}}</tspan></text>
-
-      <text x=\"40\"  y=\"82\">Root tables: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.rootTables}}</tspan></text>
-      <text x=\"200\" y=\"82\">Leaf tables: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.leafTables}}</tspan></text>
-      <text x=\"380\" y=\"82\">Hierarchy depth: <tspan font-weight=\"700\" fill=\"#ffffff\">{{stats.levels}}</tspan></text>
-    </g>
-  </g>
-</svg>
-`;
+/** Minimum distance, in px, between two hops on the same segment before
+ *  they're merged into one (see path-crossings.ts's detectHops). */
+const MIN_HOP_GAP = HOP_RADIUS * 2.5;
 
 /**
- * Table body template.
- * - Rounded rectangle with drop-shadow
- * - Gradient header with table name + column counter
- * - Per-column row with PK/FK indicators
- * - Table footer with column stats
+ * Builds an orthogonal SVG path with rounded corners.
+ *
+ * - Different levels: H→V→H elbow. The vertical segment's X position
+ *   (`midX`) is passed in explicitly rather than computed here, so the
+ *   caller can offset it to keep overlapping lines visually separated
+ *   (see `spreadVerticalSegments`). Each of the three logical segments is
+ *   rendered via `renderSegmentWithHops` so any detected crossing with
+ *   another connection gets a small arc "hop" at the exact crossing point
+ *   (see path-crossings.ts).
+ * - Same level: U-shape routed underneath both tables. This is a live,
+ *   exercised path — not a rare edge case — because a self-referencing
+ *   foreign key (e.g. `employees.manager_id → employees.id`) always
+ *   compares a table's level to itself, which is trivially always equal.
+ *   A direct cycle between two *distinct* tables never reaches this
+ *   branch; see sugiyama-layout.ts's module docs for why. Hops are not
+ *   yet supported on this path shape.
  */
-const tableTemplate = `
-  <!-- table body -->
-  <rect x=\"0\" y=\"0\" width=\"{{tableWidth}}\" height=\"{{tableHeight}}\"
-        rx=\"8\" fill=\"#ffffff\" stroke=\"#333333\" stroke-width=\"1.2\" filter=\"url(#shadow)\"/>
+const buildPath = (
+    sourceX: number, sourceY: number,
+    targetX: number, targetY: number,
+    midX: number,
+    sameLevel: boolean,
+    sourceBottom: number,
+    targetBottom: number,
+    hops: Hop[]
+): string => {
+    if (sameLevel) {
+        const routeY = Math.max(sourceBottom, targetBottom) + 40;
 
-  <!-- header -->
-  <path d=\"M 0 8 Q 0 0 8 0 L {{headerRightX}} 0 Q {{tableWidth}} 0 {{tableWidth}} 8 L {{tableWidth}} 50 L 0 50 Z\"
-        fill=\"url(#tableHeaderGradient)\"/>
-  <text x=\"{{centerX}}\" y=\"24\" font-size=\"18\" font-weight=\"700\" fill=\"#ffffff\" text-anchor=\"middle\">
-    {{tableName}}
-  </text>
-  <text x=\"{{centerX}}\" y=\"42\" font-size=\"11\" fill=\"#e0d0f0\" text-anchor=\"middle\" font-style=\"italic\">
-    {{columnCount}} columns · level {{level}}
-  </text>
-
-  <!-- columns -->
-  {{#each enrichedColumns}}
-    <g transform=\"translate(0, {{rowY}})\">
-      <rect x=\"1\" y=\"0\" width=\"{{rowWidth}}\" height=\"{{rowH}}\"
-            fill=\"{{rowFill}}\"/>
-
-      {{#if isPK}}
-        <circle cx=\"20\" cy=\"20\" r=\"10\" fill=\"#F58804\"/>
-        <text x=\"20\" y=\"24\" font-size=\"10\" font-weight=\"700\" fill=\"#ffffff\" text-anchor=\"middle\">PK</text>
-      {{else}}{{#if isFK}}
-        <circle cx=\"20\" cy=\"20\" r=\"10\" fill=\"#444DF2\"/>
-        <text x=\"20\" y=\"24\" font-size=\"10\" font-weight=\"700\" fill=\"#ffffff\" text-anchor=\"middle\">FK</text>
-      {{else}}
-        <circle cx=\"20\" cy=\"20\" r=\"4\" fill=\"#cccccc\"/>
-      {{/if}}{{/if}}
-
-      <text x=\"40\" y=\"24\" font-size=\"14\" font-weight=\"{{nameWeight}}\" fill=\"#1a1a1a\">{{name}}</text>
-      <text x=\"{{typeX}}\" y=\"24\" font-size=\"12\" fill=\"#666666\" text-anchor=\"end\" font-style=\"italic\">{{type}}</text>
-    </g>
-  {{/each}}
-
-  <!-- table footer -->
-  <rect x=\"1\" y=\"{{tableFooterY}}\" width=\"{{rowWidth}}\" height=\"26\"
-        fill=\"#f7f7fa\"/>
-  <text x=\"12\" y=\"{{tableFooterTextY}}\" font-size=\"10\" fill=\"#666666\">
-    <tspan font-weight=\"700\" fill=\"#F58804\">{{pkCount}} PK</tspan>
-    <tspan dx=\"8\" font-weight=\"700\" fill=\"#444DF2\">{{fkCount}} FK</tspan>
-    <tspan dx=\"8\" fill=\"#666666\">{{plainCount}} cols</tspan>
-  </text>
-`;
-
-/* =============================================================================
- * HANDLEBARS HELPERS
- * ========================================================================== */
-
-Handlebars.registerHelper('centerX', function (this: any) {
-    return this.tableWidth / 2;
-});
-
-Handlebars.registerHelper('headerRightX', function (this: any) {
-    return this.tableWidth - 8;
-});
-
-/* =============================================================================
- * HIERARCHICAL LAYOUT (simple topological levels)
- * ========================================================================== */
-
-/**
- * Assigns a \"level\" to each table:
- *  - level 0 => root tables (no outgoing FK to another table)
- *  - level N => max(level of referenced tables) + 1
- * Cycles are broken by capping recursion depth.
- */
-const assignLevels = (tables: Table[]): Map<string, number> => {
-    const levels = new Map<string, number>();
-    const byName = new Map(tables.map(t => [t.tableName, t]));
-
-    const resolve = (name: string, stack: Set<string>): number => {
-        if (levels.has(name)) return levels.get(name)!;
-        if (stack.has(name)) return 0; // cycle guard
-        stack.add(name);
-
-        const t = byName.get(name);
-        if (!t || t.foreignKey.length === 0) {
-            levels.set(name, 0);
-            stack.delete(name);
-            return 0;
+        // Tables nearly aligned vertically → nudge sideways
+        if (Math.abs(targetX - sourceX) < CORNER_R * 3) {
+            const nudgeX = sourceX + 50;
+            return [
+                `M ${sourceX} ${sourceBottom}`,
+                `L ${sourceX} ${routeY - CORNER_R}`,
+                `Q ${sourceX} ${routeY} ${nudgeX} ${routeY}`,
+                `L ${nudgeX} ${routeY - CORNER_R}`,
+                `L ${nudgeX} ${targetBottom}`,
+            ].join(" ");
         }
 
-        let maxRef = -1;
-        for (const fk of t.foreignKey) {
-            if (fk.referenceTable === name) continue; // self-reference
-            if (!byName.has(fk.referenceTable)) continue;
-            maxRef = Math.max(maxRef, resolve(fk.referenceTable, stack));
-        }
-        const lvl = maxRef + 1;
-        levels.set(name, lvl);
-        stack.delete(name);
-        return lvl;
-    };
+        const horizontalDirection = targetX > sourceX ? 1 : -1;
+        return [
+            `M ${sourceX} ${sourceBottom}`,
+            `L ${sourceX} ${routeY - CORNER_R}`,
+            `Q ${sourceX} ${routeY} ${sourceX + horizontalDirection * CORNER_R} ${routeY}`,
+            `L ${targetX - horizontalDirection * CORNER_R} ${routeY}`,
+            `Q ${targetX} ${routeY} ${targetX} ${routeY - CORNER_R}`,
+            `L ${targetX} ${targetBottom}`,
+        ].join(" ");
+    }
 
-    tables.forEach(t => resolve(t.tableName, new Set()));
-    return levels;
+    // Same Y → straight horizontal. Still decomposed into the same two
+    // horizontal logical segments (0 and 2) used for hop detection, so a
+    // crossing detected against either half is still rendered — only the
+    // (here zero-length) middle vertical segment is skipped.
+    if (Math.abs(sourceY - targetY) < 1) {
+        let pathData = `M ${sourceX} ${sourceY}`;
+        pathData += renderSegmentWithHops(sourceX, sourceY, midX, sourceY, hops, HOP_RADIUS, 0, 0, 0);
+        pathData += renderSegmentWithHops(midX, targetY, targetX, targetY, hops, HOP_RADIUS, 2, 0, 0);
+        return pathData;
+    }
+
+    // H-V-H with rounded corners.
+    //
+    // `horizontalDirection` is the travel direction (source → mid →
+    // target). Roughly half of all real connections run right-to-left (a
+    // referencing table is commonly laid out to the right of the table it
+    // references), so the corner inset must be applied AGAINST the
+    // direction of travel (`midX - horizontalDirection * cornerRadius`),
+    // not with a direction-blind `midX - cornerRadius` — using a fixed
+    // subtraction there was a pre-existing bug: for right-to-left
+    // connections it made the straight run overshoot past the corner
+    // point before the rounding curve began, producing a small visible
+    // backward kink instead of a clean rounded turn.
+    const horizontalDistance = Math.abs(targetX - sourceX);
+    const cornerRadius = Math.max(0, Math.min(CORNER_R, horizontalDistance / 2 - 1));
+    const horizontalDirection = targetX >= sourceX ? 1 : -1;
+    const verticalDirection = targetY > sourceY ? 1 : -1;
+
+    let pathData = `M ${sourceX} ${sourceY}`;
+    pathData += renderSegmentWithHops(sourceX, sourceY, midX, sourceY, hops, HOP_RADIUS, 0, 0, cornerRadius);
+    if (cornerRadius > 0) pathData += ` Q ${midX} ${sourceY} ${midX} ${sourceY + verticalDirection * cornerRadius}`;
+    pathData += renderSegmentWithHops(midX, sourceY, midX, targetY, hops, HOP_RADIUS, 1, cornerRadius, cornerRadius);
+    if (cornerRadius > 0) pathData += ` Q ${midX} ${targetY} ${midX + horizontalDirection * cornerRadius} ${targetY}`;
+    pathData += renderSegmentWithHops(midX, targetY, targetX, targetY, hops, HOP_RADIUS, 2, cornerRadius, 0);
+    return pathData;
 };
 
-/* =============================================================================
- * WIDTH / HEIGHT ESTIMATION
- * ========================================================================== */
-
-const estimateTextWidth = (text: string, fontSize: number) => text.length * fontSize * 0.6;
-
-const calculateTableWidth = (columns: Column[], fontSize: number): number => {
-    const paddingWidth = 100; // room for PK/FK badge + type on the right
-    const minWidth = 240;
-    let maxWidth = 0;
-    columns.forEach(col => {
-        const width = estimateTextWidth(col.name, fontSize) + estimateTextWidth(col.type, fontSize - 2);
-        if (width > maxWidth) maxWidth = width;
-    });
-    return Math.max(minWidth, Math.ceil(maxWidth + paddingWidth));
-};
-
-/* =============================================================================
- * CONNECTION ROUTING (orthogonal path with elbow)
- * ========================================================================== */
-
-/**
- * Builds an orthogonal (elbow) SVG path between source and target points.
- * Uses a mid-X breakpoint so lines are always horizontal → vertical → horizontal.
- */
-const buildOrthogonalPath = (
-    sx: number, sy: number, tx: number, ty: number
-): { d: string; midX: number; midY: number } => {
-    const midX = (sx + tx) / 2;
-    const d = `M ${sx} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${tx} ${ty}`;
-    const midY = (sy + ty) / 2;
-    return { d, midX, midY };
-};
-
-/**
- * Y position (inside a table) of a given column row.
- * Uses the constants from LAYOUT.
- */
+/** Y center of a column row inside a table (relative to table top). */
 const columnRowCenterY = (columnIndex: number): number =>
     LAYOUT.headerRowHeight + columnIndex * LAYOUT.rowHeight + LAYOUT.rowHeight / 2;
 
-/* =============================================================================
- * TABLE GENERATION
- * ========================================================================== */
+
+
+/** Minimum horizontal distance between parallel vertical segments. */
+const MIN_VERT_SPACING = 14;
+
+/** True when two Y-ranges share at least one pixel. */
+const rangesOverlap = (
+    rangeAMin: number, rangeAMax: number,
+    rangeBMin: number, rangeBMax: number
+): boolean => rangeAMin <= rangeBMax && rangeBMin <= rangeAMax;
+
+/**
+ * Pre-path connection data used by the spreading algorithm.
+ * Only different-level connections carry a vertical segment at midX.
+ */
+interface PendingConnection {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+    midX: number;
+    originalMidX: number;
+    yMin: number;
+    yMax: number;
+    sameLevel: boolean;
+    sourceBottom: number;
+    targetBottom: number;
+    sourceTable: string;
+    targetTable: string;
+    sourceColumn: string;
+    targetColumn: string;
+}
+
+/**
+ * Detects clusters of vertical segments that are too close together
+ * (both in X and in Y) and spreads them apart so they run in parallel
+ * without visual overlap.
+ *
+ * Algorithm:
+ *  1. Sort non-same-level connections by midX then yMin.
+ *  2. Walk the sorted list, grouping consecutive connections whose
+ *     vertical segments are within MIN_VERT_SPACING in X AND overlap in Y.
+ *  3. For each cluster of size > 1, redistribute midX values evenly
+ *     around the cluster's centroid, clamped to stay between source and
+ *     target edges.
+ */
+const spreadVerticalSegments = (pendingConnections: PendingConnection[]): void => {
+    // Same-level connections don't have a vertical segment to spread —
+    // they route as a U-shape instead (see buildPath).
+    const connectionsWithVerticalSegment: PendingConnection[] = [];
+    for (const connection of pendingConnections) {
+        if (!connection.sameLevel) connectionsWithVerticalSegment.push(connection);
+    }
+
+    if (connectionsWithVerticalSegment.length <= 1) return;
+
+    // Stable sort: primary by midX, secondary by yMin
+    connectionsWithVerticalSegment.sort(
+        (connectionA, connectionB) => connectionA.midX - connectionB.midX || connectionA.yMin - connectionB.yMin
+    );
+
+    const clusters: PendingConnection[][] = [];
+    let currentCluster: PendingConnection[] = [connectionsWithVerticalSegment[0]];
+
+    for (let connectionIndex = 1; connectionIndex < connectionsWithVerticalSegment.length; connectionIndex++) {
+        const previousConnection = currentCluster[currentCluster.length - 1];
+        const currentConnection = connectionsWithVerticalSegment[connectionIndex];
+
+        const xClose = Math.abs(currentConnection.midX - previousConnection.midX) < MIN_VERT_SPACING;
+        const yOverlap = rangesOverlap(
+            previousConnection.yMin, previousConnection.yMax,
+            currentConnection.yMin, currentConnection.yMax
+        );
+
+        if (xClose && yOverlap) {
+            currentCluster.push(currentConnection);
+        } else {
+            clusters.push(currentCluster);
+            currentCluster = [currentConnection];
+        }
+    }
+    clusters.push(currentCluster);
+
+
+    for (const cluster of clusters) {
+        if (cluster.length <= 1) continue;
+
+        // Consistent ordering within the cluster
+        cluster.sort(
+            (connectionA, connectionB) =>
+                connectionA.originalMidX - connectionB.originalMidX || connectionA.yMin - connectionB.yMin
+        );
+
+        // Center the spread around the cluster's natural midpoint
+        const centerMidX =
+            cluster.reduce((sum, connection) => sum + connection.originalMidX, 0) / cluster.length;
+        const totalSpan = (cluster.length - 1) * MIN_VERT_SPACING;
+        const spreadStartX = centerMidX - totalSpan / 2;
+
+        for (let positionIndex = 0; positionIndex < cluster.length; positionIndex++) {
+            const newMidX = spreadStartX + positionIndex * MIN_VERT_SPACING;
+
+            // Clamp so the vertical segment stays between source and target X
+            const minAllowedX = Math.min(cluster[positionIndex].sourceX, cluster[positionIndex].targetX) + MIN_VERT_SPACING;
+            const maxAllowedX = Math.max(cluster[positionIndex].sourceX, cluster[positionIndex].targetX) - MIN_VERT_SPACING;
+            cluster[positionIndex].midX = Math.max(minAllowedX, Math.min(maxAllowedX, newMidX));
+        }
+    }
+};
+
+
+const tableTemplateCompiled = Handlebars.compile(tableTemplate);
+
+interface PositionedTable extends SvgTable {
+    level: number;
+    columns: Column[];
+}
 
 const tablesGenerator = (
     tables: Table[],
-    levels: Map<string, number>
-): (SvgTable & { level: number; columns: Column[] })[] => {
-
-    const tableTemplateCompiled = Handlebars.compile(tableTemplate);
-
-    // group by level
-    const byLevel = new Map<number, Table[]>();
-    tables.forEach(t => {
-        const lvl = levels.get(t.tableName) ?? 0;
-        if (!byLevel.has(lvl)) byLevel.set(lvl, []);
-        byLevel.get(lvl)!.push(t);
-    });
-
-    // sort levels ascending; within each level, sort tables by name for stability
-    const sortedLevels = Array.from(byLevel.keys()).sort((a, b) => a - b);
-
-    // Precompute widths per table
-    const widths = new Map<string, number>();
-    tables.forEach(t => widths.set(t.tableName, calculateTableWidth(t.column, LAYOUT.fontSize)));
-
-    // Compute X of each level (cumulative column max width + padding)
-    const levelX = new Map<number, number>();
-    let cursorX = LAYOUT.origin.x;
-    for (const lvl of sortedLevels) {
-        levelX.set(lvl, cursorX);
-        const colTables = byLevel.get(lvl)!;
-        const maxW = Math.max(...colTables.map(t => widths.get(t.tableName)!));
-        cursorX += maxW + LAYOUT.padding.x;
+    levels: Map<string, number>,
+    order: Map<string, number>
+): PositionedTable[] => {
+    const tablesByLevel = new Map<number, Table[]>();
+    for (const table of tables) {
+        const level = levels.get(table.tableName) ?? 0;
+        if (!tablesByLevel.has(level)) tablesByLevel.set(level, []);
+        tablesByLevel.get(level)!.push(table);
     }
 
-    const result: (SvgTable & { level: number; columns: Column[] })[] = [];
+    const sortedLevels = Array.from(tablesByLevel.keys()).sort((levelA, levelB) => levelA - levelB);
 
-    for (const lvl of sortedLevels) {
-        const colTables = byLevel.get(lvl)!.sort((a, b) => a.tableName.localeCompare(b.tableName));
+    const tableWidthByName = new Map<string, number>();
+    for (const table of tables) {
+        tableWidthByName.set(table.tableName, calculateTableWidth(table.column, LAYOUT.fontSize));
+    }
+
+    // Every level occupies its own horizontal band, wide enough for the
+    // widest table in it, so tables in the next level never overlap it.
+    const xPositionByLevel = new Map<number, number>();
+    let cursorX = LAYOUT.origin.x;
+    for (const level of sortedLevels) {
+        xPositionByLevel.set(level, cursorX);
+        const maxWidthInLevel = Math.max(
+            ...tablesByLevel.get(level)!.map(table => tableWidthByName.get(table.tableName)!)
+        );
+        cursorX += maxWidthInLevel + LAYOUT.padding.x;
+    }
+
+    const positionedTables: PositionedTable[] = [];
+
+    for (const level of sortedLevels) {
+        const orderedTablesInLevel = tablesByLevel
+            .get(level)!
+            .slice()
+            .sort(
+                (tableA, tableB) =>
+                    (order.get(tableA.tableName) ?? 0) - (order.get(tableB.tableName) ?? 0)
+            );
+
         let cursorY = LAYOUT.origin.y;
 
-        colTables.forEach((table) => {
-            const tableWidth = widths.get(table.tableName)!;
+        for (const table of orderedTablesInLevel) {
+            const tableWidth = tableWidthByName.get(table.tableName)!;
             const tableHeight =
-                LAYOUT.headerRowHeight +           // header
+                LAYOUT.headerRowHeight +
                 table.column.length * LAYOUT.rowHeight +
-                26;                                // footer strip
+                26;
 
-            // For template convenience, precompute per-row Y and styling
-            // Columns are already enriched by enrichTables() in parseSql
-            const templateColumns = table.column.map((c, idx) => ({
-                ...c,
-                rowY: LAYOUT.headerRowHeight + idx * LAYOUT.rowHeight,
+            const templateColumns = table.column.map((column, columnIndex) => ({
+                ...column,
+                rowY: LAYOUT.headerRowHeight + columnIndex * LAYOUT.rowHeight,
                 rowH: LAYOUT.rowHeight,
                 rowWidth: tableWidth - 2,
-                rowFill: idx % 2 === 1 ? '#f7f5fa' : '#ffffff',
+                rowFill: columnIndex % 2 === 1 ? "#f7f5fa" : "#ffffff",
                 typeX: tableWidth - 15,
-                nameWeight: c.isPK || c.isFK ? '700' : '500',
+                nameWeight: column.isPK || column.isFK ? "700" : "500",
             }));
 
-            const pkCount = table.column.filter(c => c.isPK).length;
-            const fkCount = table.column.filter(c => c.isFK).length;
+            const pkCount = table.column.filter(column => column.isPK).length;
+            const fkCount = table.column.filter(column => column.isFK).length;
             const plainCount = table.column.length - pkCount - fkCount;
 
             const tableMarkup = tableTemplateCompiled({
                 tableName: table.tableName,
                 tableWidth,
                 tableHeight,
-                level: lvl,
+                level,
                 columnCount: table.column.length,
                 enrichedColumns: templateColumns,
-                tableFooterY: LAYOUT.headerRowHeight + table.column.length * LAYOUT.rowHeight,
-                tableFooterTextY: LAYOUT.headerRowHeight + table.column.length * LAYOUT.rowHeight + 17,
-                pkCount, fkCount, plainCount,
+                tableFooterY:
+                    LAYOUT.headerRowHeight + table.column.length * LAYOUT.rowHeight,
+                tableFooterTextY:
+                    LAYOUT.headerRowHeight +
+                    table.column.length * LAYOUT.rowHeight +
+                    17,
+                pkCount,
+                fkCount,
+                plainCount,
             });
 
-            result.push({
+            positionedTables.push({
                 tableName: table.tableName,
                 tableMarkup,
-                posX: levelX.get(lvl)!,
+                posX: xPositionByLevel.get(level)!,
                 posY: cursorY,
                 tableWidth,
                 tableHeight,
                 columns: table.column,
                 foreignKey: table.foreignKey,
-                level: lvl,
+                level,
             });
 
             cursorY += tableHeight + LAYOUT.padding.y;
-        });
+        }
     }
 
-    return result;
+    return positionedTables;
 };
 
-/* =============================================================================
- * CONNECTION GENERATION
- * ========================================================================== */
 
+/**
+ * Builds one relationship connection per foreign key: resolves its exact
+ * source/target endpoints (which row on each table's edge), spreads out
+ * any that would otherwise overlap (`spreadVerticalSegments`), detects
+ * line crossings and assigns arc-jump hops (`detectHops`), then renders
+ * every connection's final SVG path (`buildPath`).
+ */
 const connectionsGenerator = (
-    data: Table[],
-    svgTables: (SvgTable & { level: number })[]
-): (Connection & { colorIndex: number; labelWidth: number; labelBoxX: number })[] => {
+    tables: Table[],
+    svgTables: PositionedTable[],
+    levels: Map<string, number>
+): (Connection & { colorIndex: number })[] => {
+    const svgTableByName = new Map(svgTables.map(table => [table.tableName, table]));
+    const pendingConnections: PendingConnection[] = [];
 
-    const connections: (Connection & {
-        colorIndex: number; labelWidth: number; labelBoxX: number
-    })[] = [];
+    for (const table of tables) {
+        const source = svgTableByName.get(table.tableName);
+        if (!source) continue;
 
-    const svgByName = new Map(svgTables.map(t => [t.tableName, t]));
-    let fkCounter = 0;
+        for (const foreignKey of table.foreignKey) {
+            const target = svgTableByName.get(foreignKey.referenceTable);
+            if (!target) continue;
 
-    data.forEach((table) => {
-        const source = svgByName.get(table.tableName);
-        if (!source) return;
+            const sameLevel =
+                (levels.get(table.tableName) ?? 0) ===
+                (levels.get(foreignKey.referenceTable) ?? 0);
 
-        table.foreignKey.forEach((fk: ForeignKey) => {
-            const target = svgByName.get(fk.referenceTable);
-            if (!target) return;
+            let sourceX: number, sourceY: number, targetX: number, targetY: number;
 
-            // Column row Y (source FK column)
-            const fkColIdx = source.columns.findIndex(c => c.name === fk.foreignKey);
-            const sourceRowY = fkColIdx >= 0 ? columnRowCenterY(fkColIdx) : source.tableHeight / 2;
+            if (sameLevel) {
+                sourceX = source.posX + source.tableWidth / 2;
+                sourceY = source.posY + source.tableHeight;
+                targetX = target.posX + target.tableWidth / 2;
+                targetY = target.posY + target.tableHeight;
+            } else {
+                const foreignKeyColumnIndex = source.columns.findIndex(
+                    column => column.name === foreignKey.foreignKey
+                );
+                const sourceRowY =
+                    foreignKeyColumnIndex >= 0
+                        ? columnRowCenterY(foreignKeyColumnIndex)
+                        : source.tableHeight / 2;
 
-            // Column row Y (target PK column)
-            const targetTable = data.find(t => t.tableName === fk.referenceTable) ?? table;
-            const targetPKName = targetTable.primaryKeyName ?? 'id';
-            const pkColIdx = target.columns.findIndex(c => c.name === targetPKName);
-            const targetRowY = pkColIdx >= 0 ? columnRowCenterY(pkColIdx) : target.tableHeight / 2;
+                const targetTableData =
+                    tables.find(t => t.tableName === foreignKey.referenceTable) ?? table;
+                const targetPrimaryKeyName = targetTableData.primaryKeyName ?? "id";
+                const primaryKeyColumnIndex = target.columns.findIndex(
+                    column => column.name === targetPrimaryKeyName
+                );
+                const targetRowY =
+                    primaryKeyColumnIndex >= 0
+                        ? columnRowCenterY(primaryKeyColumnIndex)
+                        : target.tableHeight / 2;
 
-            // Decide source/target edge based on relative X position
-            const sourceOnRight = source.posX < target.posX;
-            const sx = source.posX + (sourceOnRight ? source.tableWidth : 0);
-            const sy = source.posY + sourceRowY;
-            const tx = target.posX + (sourceOnRight ? 0 : target.tableWidth);
-            const ty = target.posY + targetRowY;
+                const sourceOnRight = source.posX < target.posX;
+                sourceX = source.posX + (sourceOnRight ? source.tableWidth : 0);
+                sourceY = source.posY + sourceRowY;
+                targetX = target.posX + (sourceOnRight ? 0 : target.tableWidth);
+                targetY = target.posY + targetRowY;
+            }
 
-            const { d, midX, midY } = buildOrthogonalPath(sx, sy, tx, ty);
+            const midX = (sourceX + targetX) / 2;
 
-            const colorIndex = fkCounter % PALETTE.length;
-            const color = PALETTE[colorIndex];
-            const label = `${fk.foreignKey} → ${targetPKName}`;
-            const labelWidth = Math.max(80, estimateTextWidth(label, 11) + 20);
-
-            connections.push({
-                sourcePosX: sx, sourcePosY: sy,
-                targetPosX: tx, targetPosY: ty,
-                color,
-                colorIndex,
-                label,
-                sourceColumn: fk.foreignKey,
-                targetColumn: targetPKName,
+            pendingConnections.push({
+                sourceX,
+                sourceY,
+                targetX,
+                targetY,
+                midX,
+                originalMidX: midX,
+                yMin: Math.min(sourceY, targetY),
+                yMax: Math.max(sourceY, targetY),
+                sameLevel,
+                sourceBottom: source.posY + source.tableHeight,
+                targetBottom: target.posY + target.tableHeight,
                 sourceTable: table.tableName,
-                targetTable: fk.referenceTable,
-                pathData: d,
-                labelX: midX,
-                labelY: midY,
-                labelWidth,
-                labelBoxX: -labelWidth / 2,
+                targetTable: foreignKey.referenceTable,
+                sourceColumn: foreignKey.foreignKey,
+                targetColumn:
+                    tables.find(t => t.tableName === foreignKey.referenceTable)
+                        ?.primaryKeyName ?? "id",
             });
+        }
+    }
 
-            fkCounter++;
+    spreadVerticalSegments(pendingConnections);
+
+    // Scope (phase 1): only different-level (H-V-H elbow) connections are
+    // considered — same-level (U-shape) connections are excluded, see
+    // path-crossings.ts's module documentation.
+    const elbowConnections: ElbowConnection[] = pendingConnections
+        .map((connection, index) => ({ connection, index }))
+        .filter(({ connection }) => !connection.sameLevel)
+        .map(({ connection, index }) => ({
+            index,
+            segments: [
+                { x1: connection.sourceX, y1: connection.sourceY, x2: connection.midX, y2: connection.sourceY },
+                { x1: connection.midX, y1: connection.sourceY, x2: connection.midX, y2: connection.targetY },
+                { x1: connection.midX, y1: connection.targetY, x2: connection.targetX, y2: connection.targetY },
+            ] as [
+                { x1: number; y1: number; x2: number; y2: number },
+                { x1: number; y1: number; x2: number; y2: number },
+                { x1: number; y1: number; x2: number; y2: number }
+            ],
+        }));
+
+    const hopsByConnectionIndex = detectHops(elbowConnections, MIN_HOP_GAP);
+
+    const connections: (Connection & { colorIndex: number })[] = [];
+
+    for (let connectionIndex = 0; connectionIndex < pendingConnections.length; connectionIndex++) {
+        const connection = pendingConnections[connectionIndex];
+
+        const pathData = buildPath(
+            connection.sourceX, connection.sourceY, connection.targetX, connection.targetY,
+            connection.midX,
+            connection.sameLevel,
+            connection.sourceBottom,
+            connection.targetBottom,
+            hopsByConnectionIndex.get(connectionIndex) ?? []
+        );
+
+        const colorIndex = connectionIndex % PALETTE.length;
+
+        connections.push({
+            sourcePosX: connection.sourceX,
+            sourcePosY: connection.sourceY,
+            targetPosX: connection.targetX,
+            targetPosY: connection.targetY,
+            color: PALETTE[colorIndex],
+            colorIndex,
+            label: "",
+            sourceColumn: connection.sourceColumn,
+            targetColumn: connection.targetColumn,
+            sourceTable: connection.sourceTable,
+            targetTable: connection.targetTable,
+            pathData,
+            labelX: 0,
+            labelY: 0,
         });
-    });
+    }
 
     return connections;
 };
 
-/* =============================================================================
- * MAIN ENTRY POINT
- * ========================================================================== */
+const svgTemplateCompiled = Handlebars.compile(svgTemplate);
 
+/**
+ * Renders a complete ER diagram (as an SVG document string) from the
+ * intermediate, enriched Table[] model.
+ *
+ * @throws {Error} If `databaseTables` is empty — there is nothing
+ *         meaningful to lay out or render.
+ */
 export const svgGenerator = (databaseTables: Table[]): string => {
-    if (databaseTables.length === 0) throw new Error('No tables found');
+    if (databaseTables.length === 0)
+        throw new Error("No tables found");
 
-    const svgTemplateCompiled = Handlebars.compile(svgTemplate);
-
-    // 1. hierarchical layout
     const levels = assignLevels(databaseTables);
+    const order = minimizeCrossings(databaseTables, levels);
+    const svgTables = tablesGenerator(databaseTables, levels, order);
+    const connections = connectionsGenerator(databaseTables, svgTables, levels);
 
-    // 2. tables (with positions, markup, PK/FK enrichment)
-    const svgTables = tablesGenerator(databaseTables, levels);
+    const maxX = Math.max(...svgTables.map(table => table.posX + table.tableWidth));
+    const maxY = Math.max(...svgTables.map(table => table.posY + table.tableHeight));
 
-    // 3. connections between tables
-    const connections = connectionsGenerator(databaseTables, svgTables);
-
-    // 4. document-level dimensions
-    const maxX = Math.max(...svgTables.map(t => t.posX + t.tableWidth));
-    const maxY = Math.max(...svgTables.map(t => t.posY + t.tableHeight));
-
-    const svgWidth  = Math.max(1200, maxX + LAYOUT.padding.x);
+    const svgWidth = Math.max(1200, maxX + LAYOUT.padding.x);
     const contentHeight = maxY + LAYOUT.padding.y;
-    const legendY  = contentHeight;
+    const legendY = contentHeight;
     const legendWidth = Math.min(560, svgWidth - 80);
-    const footerY  = legendY + LAYOUT.legendHeight + 40;
+    const footerY = legendY + LAYOUT.legendHeight + 40;
     const svgHeight = footerY + LAYOUT.footerHeight;
 
-    // 5. stats
-    let totalCols = 0, totalPK = 0, totalFK = 0;
-    svgTables.forEach(t => {
-        totalCols += t.columns.length;
-        totalPK   += t.columns.filter(c => c.isPK).length;
-        totalFK   += t.columns.filter(c => c.isFK).length;
-    });
+    let totalColumns = 0;
+    let totalPrimaryKeys = 0;
+    let totalForeignKeys = 0;
+    for (const table of svgTables) {
+        totalColumns += table.columns.length;
+        totalPrimaryKeys += table.columns.filter(column => column.isPK).length;
+        totalForeignKeys += table.columns.filter(column => column.isFK).length;
+    }
 
-    const levelValues = Array.from(new Set(svgTables.map(t => t.level))).sort((a, b) => a - b);
-    const rootTables = svgTables.filter(t => t.level === 0).length;
-    const referencedNames = new Set<string>();
-    databaseTables.forEach(t => t.foreignKey.forEach(fk => referencedNames.add(fk.referenceTable)));
-    const leafTables = svgTables.filter(t => !referencedNames.has(t.tableName)).length;
+    const levelValues = Array.from(
+        new Set(svgTables.map(table => table.level))
+    ).sort((levelA, levelB) => levelA - levelB);
+
+    const referencedTableNames = new Set<string>();
+    for (const table of databaseTables)
+        for (const foreignKey of table.foreignKey) referencedTableNames.add(foreignKey.referenceTable);
 
     const stats = {
         tables: svgTables.length,
-        columns: totalCols,
-        primaryKeys: totalPK,
-        foreignKeys: totalFK,
+        columns: totalColumns,
+        primaryKeys: totalPrimaryKeys,
+        foreignKeys: totalForeignKeys,
         relationships: connections.length,
         levels: levelValues.length,
-        rootTables,
-        leafTables,
-        avgColumns: (totalCols / svgTables.length).toFixed(1),
+        rootTables: svgTables.filter(table => table.level === 0).length,
+        leafTables: svgTables.filter(
+            table => !referencedTableNames.has(table.tableName)
+        ).length,
+        avgColumns: (totalColumns / svgTables.length).toFixed(1),
     };
 
-    // 6. legend – one entry per unique relationship (up to 8)
-    const legendRelationships = connections.slice(0, 8).map((c, i) => ({
-        color: c.color,
-        label: `${c.sourceTable}.${c.sourceColumn} → ${c.targetTable}.${c.targetColumn}`,
-        yPos: 60 + i * 12,
+    const legendRelationships = connections.slice(0, 8).map((connection, index) => ({
+        color: connection.color,
+        label: `${connection.sourceTable}.${connection.sourceColumn} → ${connection.targetTable}.${connection.targetColumn}`,
+        yPos: 60 + index * 12,
     }));
 
-    // 7. arrow markers – one per palette color used
     const arrowMarkers = PALETTE.map((color, index) => ({ color, index }));
 
-    const svgContent = svgTemplateCompiled({
+    return svgTemplateCompiled({
         svgWidth,
         svgHeight,
         headerHeight: LAYOUT.headerHeight,
@@ -574,7 +585,6 @@ export const svgGenerator = (databaseTables: Table[]): string => {
         gridAreaHeight: svgHeight - LAYOUT.headerHeight - LAYOUT.footerHeight,
         gridSize: LAYOUT.gridSize,
         gridSizeMajor: LAYOUT.gridSize * 4,
-        counterX: svgWidth - 400,
         tables: svgTables,
         connections,
         legendY,
@@ -583,6 +593,4 @@ export const svgGenerator = (databaseTables: Table[]): string => {
         legendRelationships,
         arrowMarkers,
     });
-
-    return svgContent;
 };
