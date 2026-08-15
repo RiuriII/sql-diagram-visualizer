@@ -3,7 +3,7 @@ export interface Column {
     type: string;
     isPK?: boolean;
     isFK?: boolean;
-    fkReference?: string;   // \"targetTable.column\" - only if isFK
+    fkReference?: string;  
 }
 
 export interface ForeignKey {
@@ -15,8 +15,8 @@ export interface Table {
     tableName: string;
     column: Column[];
     foreignKey: ForeignKey[];
-    level?: number;          // hierarchy level (0 = root)
-    primaryKeyName?: string; // primary key column name (added by enrichTables)
+    level?: number;          
+    primaryKeyName?: string; 
 }
 
 export interface SvgTable {
@@ -36,12 +36,12 @@ export interface Connection {
     targetPosX: number;
     targetPosY: number;
     color: string;
-    label: string;          // \"orders.user_id → users.id\"
+    label: string;          
     sourceColumn: string;
     targetColumn: string;
     targetTable: string;
     sourceTable: string;
-    pathData: string;       // SVG path \"d\" attribute (orthogonal route)
+    pathData: string;       
     labelX: number;
     labelY: number;
 }

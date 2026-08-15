@@ -1,8 +1,22 @@
 import { Table } from "../interfaces";
 
+/**
+ * Enriches intermediate Table objects with inferred relational metadata.
+ *
+ * This function takes the intermediate table representation produced by the
+ * State Machine and infers primary and foreign key metadata. The enrichment
+ * is performed in two passes to ensure primary keys are available before
+ * resolving foreign key references across tables.
+ *
+ * Rather than performing additional SQL parsing, this step relies on
+ * naming heuristics and the metadata already extracted during parsing.
+ *
+ * @param tables - Intermediate Table objects produced by the State Machine.
+ * @returns The enriched Table objects with inferred primary and foreign key metadata.
+ */
 export const enrichTables = (tables: Table[]): Table[] => {
 
-    // First pass: calculate isPK for all columns in all tables
+    // First pass: infer primary key metadata for every table.
     const enrichedTables = tables.map(table => {
         const columns = table.column.map(column => {
             let isPK = false;
@@ -10,10 +24,10 @@ export const enrichTables = (tables: Table[]): Table[] => {
             if (column.type.toUpperCase().includes("PRIMARY KEY")) {
                 isPK = true;
             } else {
-                const lower = column.name.toLowerCase();
+                const lowerColumnName  = column.name.toLowerCase();
                 isPK =
-                    lower === "id" ||
-                    lower === `${table.tableName.toLowerCase()}_id`;
+                    lowerColumnName  === "id" ||
+                    lowerColumnName  === `${table.tableName.toLowerCase()}_id`;
             }
 
             return {
@@ -30,14 +44,12 @@ export const enrichTables = (tables: Table[]): Table[] => {
         };
     });
 
-    // Second pass: calculate isFK and fkReference using already-enriched tables
+    // Second pass: resolve foreign key metadata using the inferred primary keys.
     const enrichedMap = new Map(enrichedTables.map(t => [t.tableName, t]));
 
     return enrichedTables.map(table => {
         const columns = table.column.map(column => {
-            //----------------------------------
-            // FOREIGN KEY
-            //----------------------------------
+            
             const fk = table.foreignKey.find(
                 foreignKey => foreignKey.foreignKey === column.name
             );
@@ -60,9 +72,7 @@ export const enrichTables = (tables: Table[]): Table[] => {
             };
         });
 
-        //----------------------------------
-        // PRIMARY KEY NAME (for easy access)
-        //----------------------------------
+      
         const primaryKeyName = columns.find(c => c.isPK)?.name ?? 'id';
 
         return {
