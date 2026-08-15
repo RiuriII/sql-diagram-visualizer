@@ -3,7 +3,7 @@
   "displayName": "SQL Visualizer",
   "description": "Convert SQL files into SVG diagrams.",
   "icon": "assets/icon.png",
-  "version": "1.0.6",
+  "version": "2.0.0",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -17,7 +17,10 @@
     "visualizer",
     "extension"
   ],
-  "activationEvents": ["onCommand:extension.convertToDiagram"],
+  "activationEvents": [
+     "onLanguage:sql",
+     "onCommand:extension.convertToDiagram"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -34,6 +37,40 @@
           "group": "navigation"
         }
       ]
+    },
+    "configuration": {
+      "title": "SQL Visualizer",
+      "properties": {
+        "sqlVisualizer.inputPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the SQL file used to generate the diagram."
+        },
+        "sqlVisualizer.sqlDialect": {
+          "type": "string",
+          "enum": [
+            "mysql",
+            "postgres"
+          ],
+          "default": "mysql",
+          "description": "SQL dialect used to parse the input file."
+        },
+        "sqlVisualizer.outputName": {
+          "type": "string",
+          "default": "diagram",
+          "description": "Name of the generated SVG file."
+        },
+        "sqlVisualizer.outputDir": {
+          "type": "string",
+          "default": "./",
+          "description": "Directory where the SVG file will be generated."
+        },
+        "sqlVisualizer.autoGenerate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically generate the SVG when the configured SQL file is saved."
+        }
+      }
     }
   },
   "publisher": "RiuriDev",

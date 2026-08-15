@@ -1,19 +1,74 @@
 import * as vscode from 'vscode';
-import { readSqlFile, writeSvgFile } from './utils/fileUtils';
-import { svgGenerator } from './svgGenerator';
-import { parseSql } from './parseSql';
-import { parsePostgresql } from './parsePostgresql';
+import path from 'path';
+import { convertSqlToSvg, DialectChoice } from './services/conversionSvg';
+import { getConfiguration } from './config/configuration';
+
 
 /**
- * VS Code extension activation function
- * Registers the 'extension.convertToDiagram' command that allows converting SQL files into SVG diagrams
- * The command can be triggered from the context menu or via the command palette
- * @param {vscode.ExtensionContext} context - Extension context provided by VS Code
+ * Upper bound on input SQL file size, enforced before handing anything to
+ * the conversion pipeline — the first line of defense against an
+ * accidentally-huge file (e.g. a full data dump instead of a schema-only
+ * export) locking up the extension host. Shared by both entry points
+ * below (the interactive command and the on-save auto-generate listener).
+ */
+const MAX_SQL_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+const formatSizeErrorMessage = (sizeBytes: number): string => {
+  const fileSizeMB = (sizeBytes / 1024 / 1024).toFixed(1);
+  const limitMB = (MAX_SQL_FILE_SIZE_BYTES / 1024 / 1024).toFixed(0);
+  return `File too large (${fileSizeMB}MB). The supported limit is ${limitMB}MB.`;
+};
+
+/**
+ * VS Code extension activation function.
+ *
+ * Registers two methods to generate a diagram:
+ *  - \`extension.convertToDiagram\`: an interactive command (context menu or command palette).
+ *  - An on-save listener for automatic diagram generation when \`sqlVisualizer.autoGenerate\` is enabled.
+ *
+ * @param context - Extension context provided by VS Code
  */
 export function activate(context: vscode.ExtensionContext) {
-  let disposable = vscode.commands.registerCommand('extension.convertToDiagram', async (uri: vscode.Uri) => {
 
-    const MAX_SQL_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+  const saveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
+    const config = getConfiguration();
+
+    if (!config.autoGenerate) {
+      return;
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+    if (!workspaceFolder) {
+      return;
+    }
+
+    const inputFile = path.join(workspaceFolder, config.inputPath || "");
+    if (document.uri.fsPath !== inputFile) {
+      return;
+    }
+
+    try {
+      const { size } = await vscode.workspace.fs.stat(document.uri);
+      if (size > MAX_SQL_FILE_SIZE_BYTES) {
+        vscode.window.showErrorMessage(formatSizeErrorMessage(size));
+        return;
+      }
+
+      const outputPath = await convertSqlToSvg({
+        inputPath: inputFile,
+        outputName: config.outputName || 'diagram',
+        outputDir: path.join(workspaceFolder, config.outputDir),
+        dialectChoice: config.sqlDialect,
+      });
+
+      vscode.window.showInformationMessage(`Diagram generated successfully! File saved: ${outputPath}`);
+    } catch (error: any) {
+      console.error('Error during automatic conversion:', error);
+      vscode.window.showErrorMessage(`Failed to convert file: ${error.message || 'Unknown error'}`);
+    }
+  });
+
+  let disposable = vscode.commands.registerCommand('extension.convertToDiagram', async (uri: vscode.Uri) => {
 
     if (!uri) {
       const options: vscode.OpenDialogOptions = {
@@ -32,18 +87,13 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('No file selected');
         return;
       }
-    } 
-    
-    
+    }
+
     const filePath: string = uri.fsPath;
 
     const { size } = await vscode.workspace.fs.stat(uri);
-    
-    const fileSizeMB = (size / 1024 / 1024).toFixed(1);
-    const limitMB = (MAX_SQL_FILE_SIZE_BYTES / 1024 / 1024).toFixed(0);
-
     if (size > MAX_SQL_FILE_SIZE_BYTES) {
-      vscode.window.showErrorMessage(`File too large (${fileSizeMB}MB). The supported limit is ${limitMB}MB.`);
+      vscode.window.showErrorMessage(formatSizeErrorMessage(size));
       return;
     }
 
@@ -53,24 +103,22 @@ export function activate(context: vscode.ExtensionContext) {
       };
       const fileInputName = await vscode.window.showInputBox(inputOptions);
       const outputDirectory = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+      const outputName = fileInputName && fileInputName.trim() ? fileInputName.trim() : 'diagram';
 
-      // If the user doesn't enter anything, use a default name
-      const fileName = fileInputName && fileInputName.trim() ? `${outputDirectory}/${fileInputName}.svg` : `${outputDirectory}/diagram.svg`;
-
-      const inputTypeConversion: any = await vscode.window.showQuickPick(['PostgreSQL', 'MySQL'], {
+      const dialectPick = await vscode.window.showQuickPick(['MySQL', 'PostgreSQL'], {
         placeHolder: 'Select the type of SQL file you want to convert'
       });
+      const dialectChoice: DialectChoice = dialectPick === 'PostgreSQL' ? 'postgres' : 'mysql';
 
+      const outputPath = await convertSqlToSvg({
+        inputPath: filePath,
+        outputName,
+        outputDir: outputDirectory,
+        dialectChoice,
+      });
 
-      const sqlContent = readSqlFile(filePath);
+      vscode.window.showInformationMessage(`Diagram generated successfully! File saved: ${outputPath}`);
 
-      const databaseSchema = inputTypeConversion === 'PostgreSQL' ? parsePostgresql(sqlContent) : parseSql(sqlContent);
-      const svg = svgGenerator(databaseSchema);
-
-      await writeSvgFile(fileName, svg);
-      
-      vscode.window.showInformationMessage(`Diagram generated successfully! File saved: ${fileName}`);
-      
     } catch (error: any) {
       console.error('Error during conversion:', error);
       vscode.window.showErrorMessage(`Failed to convert file: ${error.message || 'Unknown error'}`);
@@ -78,6 +126,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   });
 
+  context.subscriptions.push(saveListener);
   context.subscriptions.push(disposable);
 }
 
