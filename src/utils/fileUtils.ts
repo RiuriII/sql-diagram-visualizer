@@ -1,6 +1,7 @@
 import { readFileSync, writeFile, access, constants } from 'fs';
-import { resolve } from 'path';
-import path from "path";
+import { mkdir } from 'fs/promises';
+import { resolve, dirname, extname, basename, join } from 'path';
+
 
 /** 
  * Reads an SQL file from the given path and returns its content as a string. 
@@ -49,49 +50,66 @@ const fileExists = (filePath: string): Promise<boolean> => {
  * // If 'diagram.svg' exists:
  * await getAvailableFileName('diagram.svg'); // Returns: 'diagram_(1).svg'
  * 
- * // If 'diagram.svg' and 'diagram_(1).svg' exist:
- * await getAvailableFileName('diagram.svg'); // Returns: 'diagram_(2).svg'
  * ```
  **/
 const getAvailableFileName = async (fileName: string): Promise<string> => {
-    const dir = path.dirname(fileName);
-    const ext = path.extname(fileName);
-    const base = path.basename(fileName, ext);
-
+    const dir = dirname(fileName);
+    const ext = extname(fileName);
+    const base = basename(fileName, ext);
+ 
     let counter = 1;
     let finalName = fileName;
-
+ 
     while (await fileExists(finalName)) {
-        finalName = path.join(dir, `${base}_(${counter})${ext}`);
+        finalName = join(dir, `${base}_(${counter})${ext}`);
         counter++;
     }
-
+ 
     return finalName;
 };
 
 
+
+
 /**
- * Writes SVG content to a file, ensuring the file name is unique.
- * 
- * @param {string} fileName - The desired file name for the SVG
+ * Writes SVG content to a file, ensuring the file name is unique and that
+ * the destination directory exists.
+ *
+ * @param {string} fileName - The desired file name for the SVG. May be a
+ *        bare name (e.g. "diagram.svg") or already include a path — when
+ *        `outputDir` is also given, the two are joined together.
  * @param {string} svgContent - The SVG content to write to the file
- * @returns {Promise<void>} - Promise that resolves when the file is written
+ * @param {string} [outputDir] - Optional destination folder. Created
+ *        (recursively) if it doesn't already exist yet, so callers can
+ *        point at a subfolder — e.g. a user-configured output directory —
+ *        without having to create it themselves first.
+ * @returns {Promise<string>} - The actual path the file was written to.
+ *          This can differ from the requested `fileName`/`outputDir`
+ *          combination when a name collision caused `_(1)`, `_(2)`, etc.
+ *          to be appended — callers that report the result to the user
+ *          (e.g. a "file saved" message) should use this return value,
+ *          not the originally requested name.
  * @throws Will throw an error if the file cannot be written
  **/
 export const writeSvgFile = async (
     fileName: string,
-    svgContent: string
-): Promise<void> => {
-    const safeFileName = await getAvailableFileName(fileName);
-
-    return new Promise((resolve, reject) => {
+    svgContent: string,
+    outputDir?: string,
+): Promise<string> => {
+    const targetPath = outputDir ? join(outputDir, fileName) : fileName;
+ 
+    await mkdir(dirname(targetPath), { recursive: true });
+    const safeFileName = await getAvailableFileName(targetPath);
+ 
+    return new Promise((resolveWrite, reject) => {
         writeFile(safeFileName, svgContent, err => {
             if (err) {
                 console.error("Error writing file:", err);
                 reject(new Error("Error writing file"));
             } else {
-                resolve();
+                resolveWrite(safeFileName);
             }
         });
     });
 };
+ 
